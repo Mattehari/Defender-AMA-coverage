@@ -1,0 +1,239 @@
+{
+    "version": "Notebook/1.0",
+    "items": [
+        {
+            "type": 1,
+            "content": {
+                "json": "# AMA insights vs Defender for Endpoint/Server\n---\nThis report provides visibility into Microsoft Defender for Endpoint (MDE)–managed devices to determine their telemetry and data collection coverage within Microsoft Sentinel. Specifically, it identifies which devices have the Azure Monitor Agent (AMA) installed and are actively sending SecurityEvent logs to Sentinel.\n\nThe goal is to help security and operations teams ensure that all MDE-enrolled devices are properly configured for comprehensive security monitoring. By correlating data from DeviceInfo, Heartbeat, and SecurityEvent tables, the report highlights:\n\n- Devices with MDE installed but missing the AMA agent.\n- Devices that are not sending SecurityEvent logs despite being onboarded to MDE.\n- Last heartbeat and log ingestion timestamps for each device to assess freshness and connectivity.\n\nThis allows teams to quickly detect configuration gaps, prioritize remediation efforts, and maintain consistent visibility across all Windows Server endpoints."
+            },
+            "name": "text - 2",
+            "id": "b9c1e093-fe7f-469d-bb71-f3b010b46b02"
+        },
+        {
+            "type": 1,
+            "content": {
+                "json": "## Filter\r\nFilter based on Workspace, Timerange, OS (text) and AMA enabled (all, yes, no)."
+            },
+            "name": "text - 8",
+            "id": "774226a4-65b4-452d-be64-956eac11da33"
+        },
+        {
+            "type": 9,
+            "content": {
+                "version": "KqlParameterItem/1.0",
+                "parameters": [
+                    {
+                        "id": "69db8811-d30c-45c1-ae32-597d2da7cd35",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "Workbook",
+                        "type": 5,
+                        "query": "resources | where type =~ 'Microsoft.operationsmanagement/solutions' | where name contains 'SecurityInsights' | project id = tostring(properties.workspaceResourceId)",
+                        "typeSettings": {
+                            "additionalResourceOptions": [],
+                            "showDefault": false
+                        },
+                        "timeContext": {
+                            "durationMs": 86400000
+                        },
+                        "queryType": 1,
+                        "resourceType": "microsoft.resourcegraph/resources",
+                        "value": "/subscriptions/5acda791-8084-416f-a083-343dd37d8be3/resourcegroups/rg-siem-us/providers/microsoft.operationalinsights/workspaces/workspacelakeenabled"
+                    },
+                    {
+                        "id": "811473d6-0ecb-4ad1-8f71-99425718f05d",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "TimeRange",
+                        "type": 4,
+                        "typeSettings": {
+                            "selectableValues": [
+                                {
+                                    "durationMs": 604800000
+                                },
+                                {
+                                    "durationMs": 1209600000
+                                },
+                                {
+                                    "durationMs": 2592000000
+                                },
+                                {
+                                    "durationMs": 5184000000
+                                },
+                                {
+                                    "durationMs": 7776000000
+                                }
+                            ]
+                        },
+                        "timeContext": {
+                            "durationMs": 86400000
+                        },
+                        "value": {
+                            "durationMs": 5184000000
+                        }
+                    },
+                    {
+                        "id": "4dcbf10d-cee3-4c37-a816-a31b6aae7fed",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "ServerFilter",
+                        "label": "Filter OS Platform (contains…)",
+                        "type": 1,
+                        "timeContext": {
+                            "durationMs": 86400000
+                        },
+                        "value": ""
+                    },
+                    {
+                        "id": "20111e0e-4ff6-4757-95fd-71f8fbdf2dfe",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "HasAMA",
+                        "label": "Has AMA",
+                        "type": 2,
+                        "typeSettings": {
+                            "additionalResourceOptions": [],
+                            "showDefault": false
+                        },
+                        "jsonData": "[\r\n  {\"label\": \"All\", \"value\": \"All\"},\r\n  {\"label\": \"Yes\", \"value\": \"Yes\"},\r\n  {\"label\": \"No\",  \"value\": \"No\"}\r\n]\r\n",
+                        "timeContext": {
+                            "durationMs": 86400000
+                        },
+                        "value": "All"
+                    }
+                ],
+                "style": "pills"
+            },
+            "name": "parameters - 1",
+            "id": "c8bd2ebc-9ba5-4218-ac6d-fb5d7051b9ed"
+        },
+        {
+            "type": 1,
+            "content": {
+                "json": "## Summary on number of devices\r\nWhen filters are applied the totals will change accordingly."
+            },
+            "name": "text - 6",
+            "id": "8a6bc9a5-7fd1-49fb-9dd2-4815039399e9"
+        },
+        {
+            "type": 3,
+            "content": {
+                "version": "KqlItem/1.0",
+                "query": "// AMA heartbeats\r\nlet AMAConnected = \r\n    Heartbeat\r\n    | summarize LastAMASeen = max(TimeGenerated) by Computer\r\n    | extend ComputerLower = tolower(split(Computer, \".\")[0]);\r\n// Security events\r\nlet DevicesWithSecurityEvents = \r\n    SecurityEvent\r\n    | summarize LastSecurityEvent = max(TimeGenerated) by Computer\r\n    | extend ComputerLower = tolower(split(Computer, \".\")[0]);\r\n// Defender devices (keep OSPlatform)\r\nDeviceInfo\r\n| summarize arg_max(TimeGenerated, OSPlatform, *) by DeviceName\r\n| extend DeviceNameLower = tolower(split(DeviceName, \".\")[0])\r\n// join AMA info\r\n| join kind=leftouter (AMAConnected) on $left.DeviceNameLower == $right.ComputerLower\r\n// join SecurityEvent info\r\n| join kind=leftouter (DevicesWithSecurityEvents) on $left.DeviceNameLower == $right.ComputerLower\r\n// derive OS type\r\n| extend OSPlatform = tostring(OSPlatform)\r\n| extend \r\n    HasAMA = iff(isnotempty(LastAMASeen), \"Yes\", \"No\"),\r\n    SendsSecurityLogs = iff(isnotempty(LastSecurityEvent), \"Yes\", \"No\")\r\n// final projection\r\n| project \r\n    OriginalDeviceName = DeviceName,\r\n    DeviceName = tostring(split(DeviceName, \".\")[0]),\r\n    OSPlatform,\r\n    HasAMA,\r\n    LastAMASeen,\r\n    SendsSecurityLogs,\r\n    LastSecurityEvent\r\n| order by DeviceName asc\r\n//Filter has AMA\r\n| where '{HasAMA}' == 'All' or HasAMA == '{HasAMA}'\r\n//Filter OS Platform\r\n//Text filter for OSPlatform column, provide for example ServiceFabricReliableActorEvent\r\n| where OSPlatform contains '{ServerFilter}'\r\n| summarize\r\n    TotalAll = count(),\r\n    TotalYes = countif(HasAMA == \"Yes\"),\r\n    TotalNo = countif(HasAMA == \"No\")\r\n| project Category = pack_array(\"Number of devices\",\"Yes\",\"No\"), Total = pack_array(TotalAll, TotalYes, TotalNo)\r\n| mv-expand Category, Total\r\n",
+                "size": 4,
+                "timeContextFromParameter": "TimeRange",
+                "queryType": 0,
+                "resourceType": "microsoft.operationalinsights/workspaces",
+                "crossComponentResources": [
+                    "{Workbook}"
+                ],
+                "visualization": "tiles",
+                "tileSettings": {
+                    "titleContent": {
+                        "columnMatch": "Category",
+                        "formatter": 12,
+                        "formatOptions": {
+                            "palette": "blue"
+                        }
+                    },
+                    "leftContent": {
+                        "columnMatch": "Total",
+                        "formatter": 12,
+                        "formatOptions": {
+                            "palette": "auto"
+                        }
+                    },
+                    "showBorder": false,
+                    "size": "auto"
+                }
+            },
+            "name": "CountforTiles",
+            "id": "2ccaf9a3-41ae-4d4c-935f-bf130d06b982"
+        },
+        {
+            "type": 3,
+            "content": {
+                "version": "KqlItem/1.0",
+                "query": "// Defender devices (only truly onboarded) with AMA & SecurityEvent\r\n(\r\nDeviceInfo\r\n| where OnboardingStatus == \"Onboarded\"\r\n| summarize arg_max(TimeGenerated, OSPlatform, *) by DeviceName\r\n| extend DeviceNameLower = tolower(DeviceName)\r\n| join kind=leftouter (\r\n    Heartbeat\r\n    | where TimeGenerated > ago(30d)\r\n    | summarize LastAMASeen = max(TimeGenerated) by Computer\r\n    | extend ComputerLower = tolower(Computer)\r\n    )\r\n    on $left.DeviceNameLower == $right.ComputerLower\r\n| join kind=leftouter (\r\n    SecurityEvent\r\n    | where TimeGenerated > ago(30d)\r\n    | summarize LastSecurityEvent = max(TimeGenerated) by Computer\r\n    | extend ComputerLower = tolower(Computer)\r\n    )\r\n    on $left.DeviceNameLower == $right.ComputerLower\r\n| extend \r\n    OSPlatform = tostring(OSPlatform),\r\n    HasAMA = iff(isnotempty(LastAMASeen), \"Yes\", \"No\"),\r\n    SendsSecurityLogs = iff(isnotempty(LastSecurityEvent), \"Yes\", \"No\"),\r\n    Source = \"Defender Device\"\r\n| project\r\n    //DeviceName,\r\n    DeviceName = tostring(split(DeviceName, \".\")[0]),\r\n    OSPlatform,\r\n    HasAMA,\r\n    LastAMASeen,\r\n    SendsSecurityLogs,\r\n    LastSecurityEvent,\r\n    Source\r\n)\r\n// AMA-only devices (Heartbeat present, NOT onboarded to Defender)\r\n| union (\r\n    Heartbeat\r\n    | where TimeGenerated > ago(30d)\r\n    | summarize \r\n        LastAMASeen = max(TimeGenerated),\r\n        Latest = arg_max(TimeGenerated, OSType, OSName, Category, Solutions)\r\n        by Computer\r\n    | extend ComputerLower = tolower(Computer)\r\n    // exclude only devices that are actually ONBOARDED in DeviceInfo\r\n    | where ComputerLower !in (\r\n        DeviceInfo\r\n    | where OnboardingStatus == \"Onboarded\"\r\n    | summarize arg_max(TimeGenerated, OSPlatform, *) by DeviceName\r\n    | extend DeviceNameLower = tolower(DeviceName)\r\n    | project DeviceNameLower\r\n    )\r\n// join security events\r\n| join kind=leftouter (\r\n    SecurityEvent\r\n    | where TimeGenerated > ago(30d)\r\n    | summarize LastSecurityEvent = max(TimeGenerated) by Computer\r\n    | extend ComputerLower = tolower(Computer)\r\n    )\r\n    on ComputerLower\r\n| extend \r\n    DeviceName = Computer,\r\n    // prefer full OSName if available\r\n    OSPlatform = coalesce(OSName, OSType, Category, \"Unknown\"),\r\n    HasAMA = \"Yes\",\r\n    SendsSecurityLogs = iff(isnotempty(LastSecurityEvent), \"Yes\", \"No\"),\r\n    Source = \"AMA Only\"\r\n| project\r\n    DeviceName,\r\n    OSPlatform,\r\n    HasAMA,\r\n    LastAMASeen,\r\n    SendsSecurityLogs,\r\n    LastSecurityEvent,\r\n    Source\r\n)\r\n// classify\r\n| extend StatusCategory = case(\r\nSource == \"Defender Device\" and HasAMA == \"Yes\", \"MDE + AMA\",\r\nSource == \"Defender Device\" and HasAMA == \"No\", \"MDE Only\",\r\nSource == \"AMA Only\", \"AMA Only\",\r\n\"Unknown\"\r\n)\r\n// Removed server-only filter so all Windows 10/11 devices appear too\r\n| order by Source asc, DeviceName asc\r\n// HasAMA logic:\r\n// - if HasAMA == \"All\" -> don't filter\r\n// - otherwise filter for selected \"Yes\" or \"No\"\r\n| where '{HasAMA}' == 'All' or HasAMA == '{HasAMA}'\r\n//Filter OS Platform\r\n//Text filter for OSPlatform column, provide for example ServiceFabricReliableActorEvent\r\n| where OSPlatform contains '{ServerFilter}'",
+                "size": 0,
+                "title": "Breakdown of devices onboarded with MDE and (not) sending SecurityEvents via AMA",
+                "timeContextFromParameter": "TimeRange",
+                "showExportToExcel": true,
+                "queryType": 0,
+                "resourceType": "microsoft.operationalinsights/workspaces",
+                "crossComponentResources": [
+                    "{Workbook}"
+                ]
+            },
+            "name": "MDEvsAMA",
+            "id": "d74c46f7-937d-47c6-bc92-668f47e6a482"
+        },
+        {
+            "type": 1,
+            "content": {
+                "json": "# Overview of (all) DCR's assigned to machines. \r\nFilter based on Machine name from the output of \"Breakdown of devices onboarded with MDE and (not) sending SecurityEvents via AMA\"."
+            },
+            "name": "text - 5",
+            "id": "d20f5358-35d1-4844-9723-e04541b1b97e"
+        },
+        {
+            "type": 9,
+            "content": {
+                "version": "KqlParameterItem/1.0",
+                "parameters": [
+                    {
+                        "id": "ca0fdf10-d4fd-46ef-838e-6febf5d39898",
+                        "version": "KqlParameterItem/1.0",
+                        "name": "VMName",
+                        "label": "VM name",
+                        "type": 1,
+                        "timeContext": {
+                            "durationMs": 86400000
+                        },
+                        "value": ""
+                    }
+                ],
+                "style": "pills"
+            },
+            "name": "parameters - 4",
+            "id": "3ae03dce-b2f3-4014-a3da-3251c27e729d"
+        },
+        {
+            "type": 3,
+            "content": {
+                "version": "KqlItem/1.0",
+                "query": "// List VMs associated with any DCR (parse name from association `id`)\r\ninsightsresources\r\n| where type =~ 'microsoft.insights/datacollectionruleassociations'\r\n| extend assocIdLower = tolower(id)\r\n| extend // strip the trailing \"/providers/microsoft.insights/datacollectionruleassociations/<assocName>\"\r\n         vmId = tostring(split(assocIdLower, '/providers/microsoft.insights/datacollectionruleassociations/')[0])\r\n| extend parts = split(vmId, '/')\r\n| extend subscription = tostring(parts[2]),\r\n         resourceGroup = tostring(parts[4]),\r\n         // \"virtualmachines/<vmName>\" starts at parts[6] and [7]\r\n         vmName = tostring(parts[8]),\r\n         dcrId = tolower(tostring(properties.dataCollectionRuleId))\r\n| project vmName, resourceGroup, subscription, dcrId, dcraName = name\r\n| order by resourceGroup asc, vmName asc\r\n| where vmName contains '{VMName}'\r\n",
+                "size": 0,
+                "title": "DCR associated to machines",
+                "showExportToExcel": true,
+                "queryType": 1,
+                "resourceType": "microsoft.resourcegraph/resources"
+            },
+            "name": "DCR",
+            "id": "d04b436d-d9cb-4fad-accf-fd8735ea76e7"
+        },
+        {
+            "type": 1,
+            "content": {
+                "json": "# Combined view of AMA enabled and related DCR\r\nThis is a merge of the Devices with MDE enabled and the DCR associated to machines table to have an overview of the machines that have a DCR configured.\r\n\r\nAdvisory is to set the filter on HasAMA to YES to make the view as clean as possible."
+            },
+            "name": "text - 10",
+            "id": "aa7fd4f7-cec4-4508-856c-ac63c95d6e8c"
+        },
+        {
+            "type": 3,
+            "content": {
+                "version": "KqlItem/1.0",
+                "query": "{\"version\":\"Merge/1.0\",\"merges\":[{\"id\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\",\"mergeType\":\"leftouter\",\"leftTable\":\"MDEvsAMA\",\"rightTable\":\"DCR\",\"leftColumn\":\"DeviceName\",\"rightColumn\":\"vmName\"}],\"projectRename\":[{\"originalName\":\"[MDEvsAMA].OriginalDeviceName\",\"mergedName\":\"OriginalDeviceName\",\"fromId\":\"unknown\"},{\"originalName\":\"[MDEvsAMA].DeviceName\",\"mergedName\":\"DeviceName\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[MDEvsAMA].OSPlatform\",\"mergedName\":\"OSPlatform\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[MDEvsAMA].HasAMA\",\"mergedName\":\"HasAMA\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[MDEvsAMA].LastAMASeen\",\"mergedName\":\"LastAMASeen\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[MDEvsAMA].SendsSecurityLogs\",\"mergedName\":\"SendsSecurityLogs\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[MDEvsAMA].LastSecurityEvent\",\"mergedName\":\"LastSecurityEvent\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[DCR].vmName\",\"mergedName\":\"vmName\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[DCR].resourceGroup\",\"mergedName\":\"resourceGroup\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[DCR].subscription\",\"mergedName\":\"subscription\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[DCR].dcrId\",\"mergedName\":\"dcrId\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[DCR].dcraName\",\"mergedName\":\"dcraName\",\"fromId\":\"dc8ade09-af7f-4659-a49a-cb1172b2215d\"},{\"originalName\":\"[MDEvsAMA].Source\",\"mergedName\":\"Source\",\"fromId\":\"unknown\"},{\"originalName\":\"[MDEvsAMA].StatusCategory\",\"mergedName\":\"StatusCategory\",\"fromId\":\"unknown\"}]}",
+                "size": 0,
+                "queryType": 7
+            },
+            "name": "Merge",
+            "id": "1bb58230-6b28-4040-8b73-efb97d8634ab"
+        }
+    ],
+    "isLocked": true,
+    "fallbackResourceIds": [
+        "/subscriptions/5acda791-8084-416f-a083-343dd37d8be3/resourcegroups/rg-siem-us/providers/microsoft.operationalinsights/workspaces/workspacelakeenabled"
+    ],
+    "fromTemplateId": "sentinel-UserWorkbook",
+    "context": {
+        "ownerId": "/subscriptions/5acda791-8084-416f-a083-343dd37d8be3/resourcegroups/rg-siem-us/providers/microsoft.operationalinsights/workspaces/workspacelakeenabled"
+    }
+}
