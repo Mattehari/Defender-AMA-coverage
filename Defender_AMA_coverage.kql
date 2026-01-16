@@ -5,17 +5,17 @@ DeviceInfo
 | summarize arg_max(TimeGenerated, OSPlatform) by DeviceName
 | extend DeviceNameLower = tolower(DeviceName)
 | join kind=leftouter (
-    //Check for logs within 3 day timeframe. Change accordingly if you want to check a bigger timeframe.
+    //Check for logs within 7 day timeframe. Change accordingly if you want to check a bigger timeframe.
     Heartbeat
-    | where TimeGenerated > ago(3d)
+    | where TimeGenerated > ago(7d)
     | summarize LastAMASeen = max(TimeGenerated) by Computer
     | extend ComputerLower = tolower(Computer)
     )
     on $left.DeviceNameLower == $right.ComputerLower
 | join kind=leftouter (
     SecurityEvent
-    //Check for logs within 3 day timeframe. Change accordingly if you want to check a bigger timeframe.
-    | where TimeGenerated > ago(3d)
+    //Check for logs within 7 day timeframe. Change accordingly if you want to check a bigger timeframe.
+    | where TimeGenerated > ago(7d)
     | summarize LastSecurityEvent = max(TimeGenerated) by Computer
     | extend ComputerLower = tolower(Computer)
     )
@@ -26,7 +26,6 @@ DeviceInfo
     SendsSecurityLogs = iff(isnotempty(LastSecurityEvent), "Yes", "No"),
     Source = "Defender Device"
 | project
-    //DeviceName,
     DeviceName = tostring(split(DeviceName, ".")[0]),
     OSPlatform,
     HasAMA,
@@ -38,14 +37,13 @@ DeviceInfo
 // AMA-only devices (Heartbeat present, NOT onboarded to Defender)
 | union (
     Heartbeat
-    //Check for logs within 3 day timeframe. Change accordingly if you want to check a bigger timeframe.
-    | where TimeGenerated > ago(3d)
+    //Check for logs within 7 day timeframe. Change accordingly if you want to check a bigger timeframe.
+    | where TimeGenerated > ago(7d)
     | summarize 
         LastAMASeen = max(TimeGenerated),
         Latest = arg_max(TimeGenerated, OSType, OSName, Category)
         by Computer
     | extend ComputerLower = tolower(Computer)
-    // exclude only devices that are actually ONBOARDED in DeviceInfo
     | where ComputerLower !in (
         DeviceInfo
     | where OnboardingStatus == "Onboarded"
@@ -53,24 +51,21 @@ DeviceInfo
     | extend DeviceNameLower = tolower(DeviceName)
     | project DeviceNameLower
     )
-// join security events
 | join kind=leftouter (
     SecurityEvent
-    //Check for logs within 3 day timeframe. Change accordingly if you want to check a bigger timeframe.
-    | where TimeGenerated > ago(3d)
+    //Check for logs within 7 day timeframe. Change accordingly if you want to check a bigger timeframe.
+    | where TimeGenerated > ago(7d)
     | summarize LastSecurityEvent = max(TimeGenerated) by Computer
     | extend ComputerLower = tolower(Computer)
     )
     on ComputerLower
 | extend 
     DeviceName = Computer,
-    // prefer full OSName if available
     OSPlatform = coalesce(OSName, OSType, Category, "Unknown"),
     HasAMA = "Yes",
     SendsSecurityLogs = iff(isnotempty(LastSecurityEvent), "Yes", "No"),
     Source = "AMA Only"
 | project
-    //DeviceName,
     DeviceName = tostring(split(DeviceName, ".")[0]),
     OSPlatform,
     HasAMA,
@@ -79,7 +74,7 @@ DeviceInfo
     LastSecurityEvent,
     Source
 )
-// classify
+// Classification with MDE, AMA or both
 | extend StatusCategory = case(
 Source == "Defender Device" and HasAMA == "Yes", "MDE + AMA",
 Source == "Defender Device" and HasAMA == "No", "MDE Only",
