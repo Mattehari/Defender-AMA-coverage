@@ -107,6 +107,6 @@ By correlating data from **DeviceInfo**, **Heartbeat**, and **SecurityEvent** ta
 
 **Advisory:**  
 Set `HasAMA = Yes` for a cleaner merged view  
-Default time range is 60 days (adjustable)
+Default time range is 3 days (adjustable)
 
 ***
